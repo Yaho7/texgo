@@ -22,13 +22,13 @@ This tutorial is divided into two stages:
 
 ## Implementation Steps
 
-0. Install ImageMagick tool (see appendix at the end)
+0. Install GraphicsMagick tool (see appendix at the end)
 1. Clone this project
    ```
    git clone https://github.com/Yaho7/latex-fastbuild.git
    ```
 2. Install dependencies
-   - Ensure ImageMagick is installed locally (on Mac use `brew install imagemagick`)
+   - Ensure GraphicsMagick is installed locally (on Mac use `brew install graphicsmagick`)
    - Install LaTeX and VS Code
 3. Open this project in VS Code
    - The settings.json is already configured by default

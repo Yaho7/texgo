@@ -1,18 +1,16 @@
-Open Source Attribution License
+MIT License
 
 Copyright (c) 2026 yaho
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to use,
-copy, modify, merge, publish, and distribute the Software, subject to the
-following conditions:
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Open Source Requirement: Any distribution of the Software, or substantial
-	portions of it, must remain open source under a license that allows users
-	to view, modify, and redistribute the source code.
-2. Attribution Requirement: Any distribution of the Software, or substantial
-	portions of it, must retain this license and include clear attribution to
-	the original author (yaho) in the documentation or source distribution.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

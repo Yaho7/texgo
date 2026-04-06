@@ -34,7 +34,7 @@ if ! command -v gm &> /dev/null; then
             exit 1
         fi
     elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "win32"* ]]; then
-        echo "⚠️ Windows 用户请手动到 https://imagemagick.org/script/download.php 安装 GraphicsMagick，并确保 'gm' 命令可用。"
+        echo "⚠️ Windows 用户请手动到 http://www.graphicsmagick.org/ 下载 GraphicsMagick，并确保 'gm' 命令可用。"
         exit 1
     else
         echo "⚠️ 未识别的操作系统类型，请手动安装 GraphicsMagick。"

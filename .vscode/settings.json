@@ -43,7 +43,9 @@
             "name": "xelatex -> biber",
             "tools": [
                 "xelatex",
-                "bibtex"
+                "biber",
+                "xelatex",
+                "xelatex"
             ]
         },
         {
