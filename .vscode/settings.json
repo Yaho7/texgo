@@ -1,6 +1,6 @@
 {
     // 指定 LaTeX 输出目录
-    "latex-workshop.latex.outDir": "%WORKSPACE_FOLDER%/out",
+    "latex-workshop.latex.outDir": "%WORKSPACE_FOLDER%/build",
 
     // LaTeX 编译配方配置
     "latex-workshop.latex.recipes": [
@@ -65,7 +65,7 @@
             "name": "convert-images",
             "command": "bash",
             "args": [
-                "%WORKSPACE_FOLDER%/src/scripts/convert_images.sh"
+                "%WORKSPACE_FOLDER%/scripts/convert-images.sh"
             ],
             "env": {}
         },
@@ -78,7 +78,7 @@
                 "-interaction=nonstopmode", // 遇错继续编译
                 "-file-line-error",     // 显示错误行号
                 "-xelatex",             // 使用 XeLaTeX 引擎
-                "-output-directory=%WORKSPACE_FOLDER%/out", // 输出目录
+                "-output-directory=%WORKSPACE_FOLDER%/build", // 输出目录
                 "%DOCFILE%"             // 待编译的文件
             ],
             "env": {}
@@ -91,7 +91,7 @@
             "-synctex=1",
             "-interaction=nonstopmode",
             "-file-line-error",
-            "-output-directory=%WORKSPACE_FOLDER%/out",
+            "-output-directory=%WORKSPACE_FOLDER%/build",
             "%DOCFILE%"
         ]
         },
@@ -100,7 +100,7 @@
             "name": "bibtex",
             "command": "bibtex",
             "args": [
-                "-output-directory=%WORKSPACE_FOLDER%/out",
+                "-output-directory=%WORKSPACE_FOLDER%/build",
                 "%DOCFILE%"
             ]
         },
@@ -113,7 +113,7 @@
                 "-interaction=nonstopmode",
                 "-file-line-error",
                 "-pdf",
-                "-output-directory=%WORKSPACE_FOLDER%/out",
+                "-output-directory=%WORKSPACE_FOLDER%/build",
                 "%DOCFILE%"
             ],
             "env": {}
@@ -123,7 +123,7 @@
             "name": "biber",
             "command": "biber",
             "args": [
-                "-output-directory=%WORKSPACE_FOLDER%/out",
+                "-output-directory=%WORKSPACE_FOLDER%/build",
                 "%DOCFILE%"
             ],
             "env": {}

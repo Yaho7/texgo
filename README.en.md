@@ -30,11 +30,23 @@ This tutorial is divided into two stages:
 2. Install dependencies
    - Ensure ImageMagick is installed locally (on Mac use `brew install imagemagick`)
    - Install LaTeX and VS Code
-3. Open this project (PaperTemplate) in VS Code
+3. Open this project in VS Code
    - The settings.json is already configured by default
-   - Open and edit manuscript.tex
+   - Open and edit template/manuscript.tex
 4. Choose the compilation recipe
    - Right-click in VS Code and select "Build with LaTeX Workshop" or select the latexmk recipe from the command palette
+
+## Project Layout
+
+```
+scripts/                # Scripts
+template/               # Template content and assets
+   manuscript.tex
+   bibliography/
+   figures/
+   styles/
+build/                  # Build outputs
+```
 
 ## How It Works
 

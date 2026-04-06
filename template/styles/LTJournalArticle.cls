@@ -37,7 +37,7 @@
 %----------------------------------------------------------------------------------------
 
 \usepackage{graphicx} % Required for including images
-\graphicspath{{Figures/PDF}{./}} % Specifies where to look for included images (trailing slash required)
+\graphicspath{{figures/pdf}{./}} % Specifies where to look for included images (trailing slash required)
 
 \usepackage[bottom, hang]{footmisc} % Force footnotes to the bottom of the page and to the left margin
 \setlength{\footnotemargin}{6pt} % Horizontal space between the footnote marker and text

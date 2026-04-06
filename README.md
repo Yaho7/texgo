@@ -27,11 +27,23 @@
   3. 安装依赖
    - 确保本地已安装 graphicsmagick（Mac 上可使用 brew install graphicsmagick）
    - 安装好 LaTeX 及 VS Code
-  4. 在 VS Code 中打开本项目(PaperTemplate)
+  4. 在 VS Code 中打开本项目
    - 默认已配置好 settings.json
-   - 打开并编写 manuscript.tex
+   - 打开并编写 template/manuscript.tex
   5. 选择编译配方
    - 在 VS Code 中右键选择 “使用 LaTeX Workshop 编译”，或从命令面板选择 latexmk 配方
+
+## 目录结构
+
+```
+scripts/                # 脚本
+template/               # 模板正文与资源
+  manuscript.tex
+  bibliography/
+  figures/
+  styles/
+build/                  # 编译产物
+```
 
 
   ## 实现原理

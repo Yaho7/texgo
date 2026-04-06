@@ -6,8 +6,8 @@
 # 自动检查并安装 gm（GraphicsMagick）
 # ===============================
 
-SOURCE_DIR="$(pwd)/src/Figures"
-TARGET_DIR="$SOURCE_DIR/PDF"
+SOURCE_DIR="$(pwd)/template/figures"
+TARGET_DIR="$SOURCE_DIR/pdf"
 EXTS=(png jpg jpeg gif tif tiff bmp svg)
 
 # 检查 gm 是否可用，不可用则尝试自动安装
