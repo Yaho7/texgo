@@ -1,143 +1,167 @@
-  ## 📖 选择语言 | Select Language
+# texgo
 
-  - [English](./README.en.md)
-  - [简体中文](./README.md)
+[简体中文](./README.zh.md)
 
-# 大幅提高 LaTeX 的编译速度, 适用于Windows,MacOS,Linux
+`texgo` is a small Go CLI for building LaTeX projects from the terminal. It reduces repeated LaTeX compilation overhead by caching converted figure PDFs, detects the main `.tex` file, and delegates compilation to `latexmk`.
 
-  ## 前言
+## Features
 
-  Latex会随着文稿逐渐变长、图片增多，编译速度越来越慢——特别是当插入大量 PNG、JPEG 图片时，每次编译往往需要 60 秒甚至更久。
+- Builds a LaTeX project with a single `texgo` command.
+- Shortens repeated compilation by converting supported figures once and reusing cached PDFs.
+- Detects common main files such as `main.tex`, `paper.tex`, `manuscript.tex`, and `thesis.tex`.
+- Parses local `\includegraphics{...}` references to discover figure directories.
+- Converts supported images to cached PDFs through GraphicsMagick.
+- Stores project preferences in `.texgo.conf`.
+- Produces a single Go binary for distribution.
 
-  这是因为 LaTeX 在编译过程中需要将这些图片格式压缩、转换为 PDF 后再进行排版处理，极大拖慢了速度。
+## Requirements
 
-  通过本教程的设置，你可以将完整论文的编译时间 **压缩至 5 秒以内**。
+Runtime dependencies:
 
-  本教程分为两个阶段：
+- `latexmk`
+- A LaTeX engine supported by `latexmk`: `xelatex`, `pdflatex`, or `lualatex`
+- `gm` from GraphicsMagick, required only when image conversion is enabled
 
-  - 配置 VS Code 的 `settings.json`
-    - 设置 `latexmk` 编译工具
-    - 配置图片自动转换 PDF 的脚本
+Source build dependency:
 
+- Go, required only when building from source
 
-  # 实现步骤
-  1. 安装graphicsmagick工具,请看文末附录
-  2. 克隆本项目 
-   - git clone https://github.com/Yaho7/latex-fastbuild.git
-  3. 安装依赖
-   - 确保本地已安装 graphicsmagick（Mac 上可使用 brew install graphicsmagick）
-   - 安装好 LaTeX 及 VS Code
-  4. 在 VS Code 中打开本项目
-   - 默认已配置好 settings.json
-   - 打开并编写 template/manuscript.tex
-  5. 选择编译配方
-   - 在 VS Code 中右键选择 “使用 LaTeX Workshop 编译”，或从命令面板选择 latexmk 配方
+## Installation
 
-## 目录结构
+Install the latest release:
 
-```
-scripts/                # 脚本
-template/               # 模板正文与资源
-  manuscript.tex
-  bibliography/
-  figures/
-  styles/
-build/                  # 编译产物
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes
 ```
 
+The installer detects the operating system and CPU architecture, downloads the matching binary from GitHub Releases, installs missing runtime dependencies when possible, and places `texgo` under `/usr/local/bin` by default.
 
-  ## 实现原理
+Install to a user-local prefix:
 
-  ### 1. 使用 `latexmk` 进行智能编译
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes --prefix "$HOME/.local"
+```
 
-  相比传统的 `xelatex` 手动编译方式，`latexmk` 具有以下优势：
+Install a specific release:
 
-  - **自动多轮编译**：自动检测 `.aux`、`.toc`、`.bbl` 等文件的变化，并自动调用编译器多次，直到输出稳定。
-  - **自动处理参考文献**：当引用发生变化时，会自动运行 BibTeX 或 Biber。
-  - **只编译必要部分**：如果部分内容未更改，它不会重复编译，从而显著提升速度。
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes --version v0.1.0
+```
 
-  ### 2. 图片转换为 PDF 并长期缓存
+Build and install from source:
 
-  我们通过一个自定义脚本自动完成以下逻辑：
+```bash
+git clone https://github.com/Yaho7/texgo.git
+cd texgo
+./install.sh --build-from-source --yes --prefix "$HOME/.local"
+```
 
-  - 编译时检查图片是否已有对应 PDF 文件；
-  - 如有，则跳过；
-  - 如无，则自动将 PNG、JPEG 等格式转换为 PDF 并保存；
-  - 转换结果长期缓存，后续编译无需重复处理，显著加快速度。
+Build only:
 
+```bash
+./scripts/build-binary.sh
+```
 
-# 附录
+The default build artifact is:
 
-## **graphicsmagick 安装教程**
+```text
+dist/texgo-<os>-<arch>
+```
 
-### **macOS 系统**
+## Quick Start
 
-#### **使用 Homebrew 安装（推荐）**
+Configure a project once:
 
-1. 打开 Terminal（终端）；
+```bash
+texgo setup
+```
 
-2. 输入以下命令安装：
+Build the project:
 
-   ```
-   brew install graphicsmagick
-   ```
+```bash
+texgo
+```
 
-3. 验证是否安装成功：
+`texgo` without arguments is equivalent to `texgo build` when run inside a LaTeX project.
 
-   ```
-   gm convert -version
-   ```
+## Commands
 
+```bash
+texgo                    # Build the current project
+texgo setup              # Create or update .texgo.conf interactively
+texgo build              # Build the current project
+texgo build main.tex     # Build a specific TeX file
+texgo images             # Convert and cache image files only
+texgo clean              # Remove the build directory
+texgo clean --figures    # Remove build output and cached figure PDFs
+texgo doctor             # Check required external commands
+texgo init my-paper      # Create a minimal starter project
+```
 
+Common options:
 
----
+```text
+--project-dir DIR
+--figures-dir DIR
+--pdf-dir DIR
+--build-dir DIR
+--tex-file FILE
+--engine xelatex|pdflatex|lualatex
+--no-images
+```
 
-### **Windows 系统**
+## Configuration
 
-#### **使用安装包安装（推荐）**
+`texgo setup` writes `.texgo.conf` in the project root.
 
-1. 打开 [GraphicsMagick 官方下载页面](http://www.graphicsmagick.org/)；
-2. 在 Windows Packages 中选择合适的版本（一般为 Win64 dynamic at 16 bits per pixel）；
-3. 下载并运行 `.exe` 安装程序；
-4. 安装时勾选 **Add application directory to your system path**（将 GraphicsMagick 添加到系统环境变量）；
-5. 打开 命令提示符（CMD）或 PowerShell，输入：
+Example:
 
-   ```
-   gm convert -version
-   ```
+```conf
+tex_file=paper.tex
+engine=xelatex
+build_dir=build
+figures_dir=
+convert_images=1
+```
 
-   如果出现版本信息，则说明安装成功。
+Precedence:
 
----
+```text
+command-line options > .texgo.conf > auto-detected defaults
+```
 
-### **Linux 系统**
+## Image Conversion
 
-#### **使用包管理器安装**
+When image conversion is enabled, `texgo` converts supported files in figure directories to PDFs and stores them under a `pdf/` subdirectory. This avoids forcing LaTeX to repeatedly process large raster/vector assets during later builds, which can substantially reduce compilation time for figure-heavy papers, theses, and reports.
 
-1. 打开终端；
-2. 根据你的发行版，输入以下命令之一：
+Supported source extensions:
 
-   - **Debian/Ubuntu：**
-     ```
-     sudo apt-get update
-     sudo apt-get install graphicsmagick
-     ```
+```text
+png, jpg, jpeg, gif, tif, tiff, bmp, svg
+```
 
-   - **CentOS/Fedora：**
-     ```
-     sudo dnf install GraphicsMagick
-     ```
-     或
-     ```
-     sudo yum install GraphicsMagick
-     ```
+Cached PDFs are refreshed when the source image is newer. Stale cached PDFs are removed when their source image no longer exists.
 
-3. 验证是否安装成功：
+## Development
 
-   ```
-   gm convert -version
-   ```
+Run tests:
 
-   如果看到版本信息，则说明安装成功。
+```bash
+go test ./...
+bash tests/install_release_test.sh
+```
 
-> 如果遇到问题或使用其他发行版，请参考 [官方安装文档](http://www.graphicsmagick.org/INSTALL-unix.html)。
+Build a local binary:
+
+```bash
+./scripts/build-binary.sh --output /tmp/texgo
+```
+
+Project layout:
+
+```text
+cmd/texgo/              Go CLI source and tests
+.github/workflows/      Multi-platform release builds
+scripts/                Build helper scripts
+install.sh              Release installer and source build helper
+```
