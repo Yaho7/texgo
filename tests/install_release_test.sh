@@ -10,13 +10,13 @@ prefix_dir="$TMP_DIR/prefix"
 log_file="$TMP_DIR/install.log"
 mkdir -p "$release_dir" "$prefix_dir"
 
-cat > "$release_dir/texgo-darwin-arm64" <<'BIN'
+cat > "$release_dir/texgo-macos-arm64" <<'BIN'
 #!/usr/bin/env bash
 echo "texgo test binary"
 BIN
-chmod +x "$release_dir/texgo-darwin-arm64"
+chmod +x "$release_dir/texgo-macos-arm64"
 
-TEXGO_OS=darwin \
+TEXGO_OS=macos \
 TEXGO_ARCH=arm64 \
 TEXGO_RELEASE_BASE_URL="file://$release_dir" \
 TEXGO_TEST_MISSING_COMMANDS="gm latexmk" \

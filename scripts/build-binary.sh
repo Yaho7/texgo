@@ -6,7 +6,9 @@ command -v go >/dev/null 2>&1 || { echo "go is required to build texgo" >&2; exi
 
 OS_NAME="$(go env GOOS)"
 ARCH_NAME="$(go env GOARCH)"
-OUTPUT="$ROOT_DIR/dist/texgo-$OS_NAME-$ARCH_NAME"
+ASSET_OS_NAME="$OS_NAME"
+[ "$ASSET_OS_NAME" = "darwin" ] && ASSET_OS_NAME="macos"
+OUTPUT="$ROOT_DIR/dist/texgo-$ASSET_OS_NAME-$ARCH_NAME"
 
 print_usage() {
     cat <<'EOF'

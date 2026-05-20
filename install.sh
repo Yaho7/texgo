@@ -26,7 +26,7 @@ Options:
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes
-  ./install.sh --from dist/texgo-darwin-arm64 --prefix "$HOME/.local"
+  ./install.sh --from dist/texgo-macos-arm64 --prefix "$HOME/.local"
   ./install.sh --build-from-source --prefix "$HOME/.local"
 EOF
 }
@@ -256,7 +256,7 @@ detect_os() {
     fi
 
     case "$(uname -s)" in
-        Darwin) printf 'darwin\n' ;;
+        Darwin) printf 'macos\n' ;;
         Linux) printf 'linux\n' ;;
         MINGW*|MSYS*|CYGWIN*) printf 'windows\n' ;;
         *)

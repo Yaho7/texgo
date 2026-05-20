@@ -41,21 +41,27 @@ jobs:
       matrix:
         include:
           - goos: linux
+            asset_os: linux
             goarch: amd64
             ext: ""
           - goos: linux
+            asset_os: linux
             goarch: arm64
             ext: ""
           - goos: darwin
+            asset_os: macos
             goarch: amd64
             ext: ""
           - goos: darwin
+            asset_os: macos
             goarch: arm64
             ext: ""
           - goos: windows
+            asset_os: windows
             goarch: amd64
             ext: ".exe"
           - goos: windows
+            asset_os: windows
             goarch: arm64
             ext: ".exe"
     steps:
@@ -75,13 +81,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "dist/texgo-${GOOS}-${GOARCH}${{ matrix.ext }}" ./cmd/texgo
+          go build -trimpath -ldflags="-s -w" -o "dist/texgo-${{ matrix.asset_os }}-${GOARCH}${{ matrix.ext }}" ./cmd/texgo
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: texgo-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/texgo-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          name: texgo-${{ matrix.asset_os }}-${{ matrix.goarch }}
+          path: dist/texgo-${{ matrix.asset_os }}-${{ matrix.goarch }}${{ matrix.ext }}
           if-no-files-found: error
 
   release:
