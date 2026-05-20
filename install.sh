@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PREFIX="/usr/local"
 SOURCE_BINARY=""
 BUILD_FROM_SOURCE=0
@@ -10,6 +10,10 @@ ASSUME_YES=0
 REPO="${TEXGO_REPO:-Yaho7/texgo}"
 VERSION="${TEXGO_VERSION:-latest}"
 DOWNLOAD_TMP_DIR=""
+STYLE_BOLD=""
+STYLE_GREEN=""
+STYLE_DIM=""
+STYLE_RESET=""
 
 print_usage() {
     cat <<'EOF'
@@ -116,6 +120,40 @@ run_install_command() {
         return 0
     fi
     "$@"
+}
+
+setup_terminal_styles() {
+    [ -t 1 ] || return 0
+    [ -z "${NO_COLOR:-}" ] || return 0
+
+    STYLE_BOLD="$(printf '\033[1m')"
+    STYLE_GREEN="$(printf '\033[32m')"
+    STYLE_DIM="$(printf '\033[2m')"
+    STYLE_RESET="$(printf '\033[0m')"
+}
+
+print_success_summary() {
+    local dependency_status="$1"
+    local source_label="$2"
+    local install_path="$PREFIX/bin/texgo"
+
+    setup_terminal_styles
+
+    printf '\n'
+    printf '%s%s%s\n' "$STYLE_GREEN$STYLE_BOLD" "texgo installation complete" "$STYLE_RESET"
+    printf '%s\n' "--------------------------------"
+    printf '  %-12s : %s\n' "Install path" "$install_path"
+    printf '  %-12s : %s\n' "Source" "$source_label"
+    printf '  %-12s : %s\n' "Dependencies" "$dependency_status"
+    printf '  %-12s : %s\n' "Next step" "texgo --help"
+    printf '%s\n' "--------------------------------"
+
+    case ":$PATH:" in
+        *":$PREFIX/bin:"*) ;;
+        *)
+            printf '%s\n' "${STYLE_DIM}Tip: add $PREFIX/bin to PATH if texgo is not found in a new shell.${STYLE_RESET}"
+            ;;
+    esac
 }
 
 confirm_dependency_install() {
@@ -410,8 +448,12 @@ done
 
 ensure_dependencies
 
+DEPENDENCY_STATUS="skipped"
+[ "$INSTALL_DEPS" -eq 1 ] && DEPENDENCY_STATUS="verified"
+
 if [ -n "$SOURCE_BINARY" ]; then
     SOURCE="$SOURCE_BINARY"
+    SOURCE_LABEL="local binary"
 elif [ "$BUILD_FROM_SOURCE" -eq 1 ]; then
     [ -x "$ROOT_DIR/scripts/build-binary.sh" ] || {
         echo "--build-from-source must be run from a texgo source checkout." >&2
@@ -419,12 +461,13 @@ elif [ "$BUILD_FROM_SOURCE" -eq 1 ]; then
     }
     SOURCE="$ROOT_DIR/dist/texgo-install"
     "$ROOT_DIR/scripts/build-binary.sh" --output "$SOURCE"
+    SOURCE_LABEL="source build"
 else
     SOURCE="$(download_release_binary)"
+    SOURCE_LABEL="release $VERSION from $REPO"
 fi
 
 [ -f "$SOURCE" ] || { echo "Install source not found: $SOURCE" >&2; exit 1; }
 install_binary "$SOURCE"
 
-echo "Installed texgo to $PREFIX/bin/texgo"
-echo "Run: texgo --help"
+print_success_summary "$DEPENDENCY_STATUS" "$SOURCE_LABEL"
