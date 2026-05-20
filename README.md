@@ -34,40 +34,6 @@ Install the latest release:
 curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes
 ```
 
-The installer detects the operating system and CPU architecture, downloads the matching binary from GitHub Releases, installs missing runtime dependencies when possible, and places `texgo` under `/usr/local/bin` by default.
-
-Install to a user-local prefix:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes --prefix "$HOME/.local"
-```
-
-Install a specific release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes --version v0.1.0
-```
-
-Build and install from source:
-
-```bash
-git clone https://github.com/Yaho7/texgo.git
-cd texgo
-./install.sh --build-from-source --yes --prefix "$HOME/.local"
-```
-
-Build only:
-
-```bash
-./scripts/build-binary.sh
-```
-
-The default build artifact is:
-
-```text
-dist/texgo-<os>-<arch>
-```
-
 ## Quick Start
 
 Configure a project once:
