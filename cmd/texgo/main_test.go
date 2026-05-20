@@ -92,6 +92,28 @@ func TestImagesConvertsAndPrunesCachedPDFs(t *testing.T) {
 	assertNotFile(t, filepath.Join(project, "figures", "pdf", "stale.pdf"))
 }
 
+func TestImagesUsesUppercaseFiguresAndExistingPDFCacheDir(t *testing.T) {
+	project := realPath(t, t.TempDir())
+	fakeBin := t.TempDir()
+	installFakeTool(t, fakeBin, "gm")
+	writeFile(t, filepath.Join(project, "src", "manuscript.tex"), `\documentclass{article}\begin{document}\includegraphics{Plot.pdf}\end{document}`)
+	mkdirAll(t, filepath.Join(project, "src", "Figures", "PDF"))
+	writeFile(t, filepath.Join(project, "src", "Figures", "Plot.png"), "png")
+
+	withEnv(t, "PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withEnv(t, "TEXGO_FAKE_TOOL", "1")
+	runInDir(t, project, func() {
+		var out, stderr bytes.Buffer
+		a := app{stdin: strings.NewReader(""), stdout: &out, stderr: &stderr}
+		if err := a.run([]string{"images", "--tex-file", "src/manuscript.tex"}); err != nil {
+			t.Fatalf("images: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+		}
+	})
+
+	assertFile(t, filepath.Join(project, "src", "Figures", "PDF", "Plot.pdf"))
+	assertNoChildDirNamed(t, filepath.Join(project, "src", "Figures"), "pdf")
+}
+
 func TestBuildWorksWithoutBundledTemplate(t *testing.T) {
 	project := realPath(t, t.TempDir())
 	fakeBin := t.TempDir()
@@ -213,6 +235,29 @@ func TestSetupWritesConfigAndBuildUsesIt(t *testing.T) {
 	}
 }
 
+func TestSetupLetsUserChooseScannedImageDirectory(t *testing.T) {
+	project := realPath(t, t.TempDir())
+	writeFile(t, filepath.Join(project, "main.tex"), `\documentclass{article}\begin{document}main\end{document}`)
+	writeFile(t, filepath.Join(project, "data", "plots", "chart.png"), "png")
+	writeFile(t, filepath.Join(project, "notes", "readme.txt"), "not an image")
+
+	runInDir(t, project, func() {
+		var out, stderr bytes.Buffer
+		a := app{stdin: strings.NewReader("\nxelatex\nbuild\n1\n"), stdout: &out, stderr: &stderr}
+		if err := a.run([]string{"setup"}); err != nil {
+			t.Fatalf("setup: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "Image directories found:") || !strings.Contains(stderr.String(), "data/plots") {
+			t.Fatalf("setup did not show scanned image directories:\n%s", stderr.String())
+		}
+	})
+
+	configText := readFile(t, filepath.Join(project, configFileName))
+	if !strings.Contains(configText, "figures_dir=data/plots") {
+		t.Fatalf("config did not save selected scanned image directory:\n%s", configText)
+	}
+}
+
 func TestCleanRemovesBuildArtifactsAndCachedPDFs(t *testing.T) {
 	project := realPath(t, t.TempDir())
 	mkdirAll(t, filepath.Join(project, "build"))
@@ -330,5 +375,18 @@ func assertNotFile(t *testing.T, path string) {
 	info, err := os.Stat(path)
 	if err == nil && !info.IsDir() {
 		t.Fatalf("expected file to be absent: %s", path)
+	}
+}
+
+func assertNoChildDirNamed(t *testing.T, parent, name string) {
+	t.Helper()
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() == name {
+			t.Fatalf("expected %s not to contain child directory named %s", parent, name)
+		}
 	}
 }

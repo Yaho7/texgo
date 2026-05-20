@@ -34,40 +34,6 @@
 curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes
 ```
 
-安装脚本会自动识别操作系统和 CPU 架构，从 GitHub Releases 下载对应二进制，并在可行时自动安装缺失的运行时依赖。默认安装位置是 `/usr/local/bin`。
-
-安装到用户目录：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes --prefix "$HOME/.local"
-```
-
-安装指定版本：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Yaho7/texgo/main/install.sh | bash -s -- --yes --version v0.1.0
-```
-
-从源码构建并安装：
-
-```bash
-git clone https://github.com/Yaho7/texgo.git
-cd texgo
-./install.sh --build-from-source --yes --prefix "$HOME/.local"
-```
-
-只构建二进制：
-
-```bash
-./scripts/build-binary.sh
-```
-
-默认构建产物：
-
-```text
-dist/texgo-<os>-<arch>
-```
-
 ## 快速开始
 
 首次配置项目：

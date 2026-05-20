@@ -322,7 +322,7 @@ func (a app) convertImages(opts imageOptions) error {
 		return errors.New("--pdf-dir can only be used with a single --figures-dir")
 	}
 	for _, dir := range figureDirs {
-		targetPDFDir := filepath.Join(dir, "pdf")
+		targetPDFDir := defaultPDFDir(dir)
 		if opts.PDFDir != "" {
 			targetPDFDir = resolveInProject(opts.ProjectDir, opts.PDFDir)
 		}
@@ -347,7 +347,20 @@ func resolveFigureDirs(projectDir, figuresDir, texFile string) ([]string, error)
 		dirs = discovered
 	}
 	if len(dirs) == 0 {
-		dirs = commonGraphicsDirs(projectDir)
+		scanned, err := findImageDirs(projectDir)
+		if err != nil {
+			return nil, err
+		}
+		dirs = scanned
+		if len(dirs) == 0 {
+			dirs = commonGraphicsDirs(projectDir)
+			if texFile != "" {
+				texDir := filepath.Dir(resolveInProject(projectDir, texFile))
+				if texDir != projectDir {
+					dirs = append(dirs, commonGraphicsDirs(texDir)...)
+				}
+			}
+		}
 	}
 	return uniqueExistingDirs(dirs), nil
 }
@@ -369,12 +382,56 @@ func uniqueExistingDirs(dirs []string) []string {
 func commonGraphicsDirs(projectDir string) []string {
 	var dirs []string
 	for _, dir := range []string{"figures", "images", "img", "assets"} {
-		path := filepath.Join(projectDir, dir)
-		if dirExists(path) {
+		if path := existingChildDir(projectDir, dir); path != "" {
 			dirs = append(dirs, path)
 		}
 	}
 	return dirs
+}
+
+func findImageDirs(projectDir string) ([]string, error) {
+	var dirs []string
+	err := filepath.WalkDir(projectDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != projectDir && shouldSkipImageScanDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isSupportedImagePath(path) {
+			dirs = append(dirs, filepath.Dir(path))
+		}
+		return nil
+	})
+	return uniqueExistingDirs(dirs), err
+}
+
+func shouldSkipImageScanDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch strings.ToLower(name) {
+	case "build", "dist", "out", "pdf", "node_modules":
+		return true
+	default:
+		return false
+	}
+}
+
+func existingChildDir(parent, name string) string {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.EqualFold(entry.Name(), name) {
+			return filepath.Join(parent, entry.Name())
+		}
+	}
+	return ""
 }
 
 var includeGraphicsRE = regexp.MustCompile(`\\includegraphics(\[[^\]]*\])?\{([^}]+)\}`)
@@ -411,7 +468,7 @@ func discoverGraphicsDirs(texFile string) ([]string, error) {
 		dir := filepath.Dir(resolved)
 		filename := filepath.Base(resolved)
 		name := strings.TrimSuffix(filename, filepath.Ext(filename))
-		if filepath.Base(dir) == "pdf" && dirExists(filepath.Dir(dir)) && matchingSourceImage(filepath.Dir(dir), name) != "" {
+		if strings.EqualFold(filepath.Base(dir), "pdf") && dirExists(filepath.Dir(dir)) && matchingSourceImage(filepath.Dir(dir), name) != "" {
 			dirs = append(dirs, filepath.Dir(dir))
 			continue
 		}
@@ -448,6 +505,13 @@ func matchingSourceImage(dir, name string) string {
 		}
 	}
 	return ""
+}
+
+func defaultPDFDir(figuresDir string) string {
+	if existing := existingChildDir(figuresDir, "pdf"); existing != "" {
+		return existing
+	}
+	return filepath.Join(figuresDir, "pdf")
 }
 
 func (a app) convertImagesDir(figuresDir, pdfDir string, force, prune bool) error {
@@ -733,23 +797,42 @@ func (a app) runSetup(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(detected) > 0 {
-		fmt.Fprintln(a.stderr, "Detected figure directories:")
-		for _, dir := range detected {
-			fmt.Fprintf(a.stderr, "  - %s\n", relativeToProject(projectDir, dir))
+	scanned, err := findImageDirs(projectDir)
+	if err != nil {
+		return err
+	}
+	imageDirs := uniqueExistingDirs(append(detected, scanned...))
+	if len(imageDirs) > 0 {
+		fmt.Fprintln(a.stderr, "Image directories found:")
+		for i, dir := range imageDirs {
+			fmt.Fprintf(a.stderr, "  %d) %s\n", i+1, relativeToProject(projectDir, dir))
+		}
+		if len(detected) > 0 {
+			fmt.Fprintln(a.stderr, "Matched includegraphics references:")
+			for _, dir := range detected {
+				fmt.Fprintf(a.stderr, "  - %s\n", relativeToProject(projectDir, dir))
+			}
 		}
 	} else {
-		fmt.Fprintln(a.stderr, "No figure directories detected from includegraphics references.")
+		fmt.Fprintln(a.stderr, "No image directories found.")
 	}
 	figDefault := defaultString(cfg.FiguresDir, "auto")
-	figuresDir := a.prompt(reader, "Figure directory (auto, explicit path, or - to disable image conversion)", figDefault)
+	figuresChoice := a.prompt(reader, "Figure directory (auto, number, explicit path, or - to disable image conversion)", figDefault)
+	figuresDir := figuresChoice
 	convertImages := "1"
-	switch figuresDir {
-	case "auto", "":
-		figuresDir = ""
-	case "-":
-		figuresDir = ""
-		convertImages = "0"
+	if choice, err := strconv.Atoi(figuresChoice); err == nil {
+		if choice < 1 || choice > len(imageDirs) {
+			return fmt.Errorf("invalid figure directory choice: %s", figuresChoice)
+		}
+		figuresDir = relativeToProject(projectDir, imageDirs[choice-1])
+	} else {
+		switch figuresChoice {
+		case "auto", "":
+			figuresDir = ""
+		case "-":
+			figuresDir = ""
+			convertImages = "0"
+		}
 	}
 	newCfg := config{
 		TexFile:       selectedTex,
