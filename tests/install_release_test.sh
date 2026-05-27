@@ -52,4 +52,16 @@ if grep -q " go" "$log_file"; then
     exit 1
 fi
 
+noninteractive_log_file="$TMP_DIR/noninteractive-install.log"
+if TEXGO_OS=macos \
+    TEXGO_ARCH=arm64 \
+    TEXGO_RELEASE_BASE_URL="file://$release_dir" \
+    TEXGO_TEST_MISSING_COMMANDS="latexmk" \
+    TEXGO_PACKAGE_MANAGER=brew \
+    TEXGO_INSTALL_LOG="$noninteractive_log_file" \
+        bash -s -- --prefix "$TMP_DIR/noninteractive-prefix" < "$ROOT_DIR/install.sh" > /dev/null 2>&1; then
+    echo "non-interactive dependency installation should require --yes" >&2
+    exit 1
+fi
+
 echo "install release test passed"

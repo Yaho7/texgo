@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -13,11 +14,18 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-const configFileName = ".texgo.conf"
+const (
+	configFileName      = ".texgo.conf"
+	defaultImageWorkers = 4
+)
 
 var imageExts = []string{"png", "jpg", "jpeg", "gif", "tif", "tiff", "bmp", "svg"}
+
+//go:embed template-assets/logo.png
+var templateLogoPNG []byte
 
 type app struct {
 	stdin  io.Reader
@@ -39,6 +47,7 @@ type imageOptions struct {
 	FiguresDir string
 	PDFDir     string
 	TexFile    string
+	Workers    int
 	Force      bool
 	Prune      bool
 }
@@ -52,6 +61,24 @@ type buildOptions struct {
 	ConvertImages bool
 	OpenPDF       bool
 	TexFile       string
+	Workers       int
+}
+
+type imageConversion struct {
+	source string
+	target string
+	name   string
+}
+
+type synchronizedWriter struct {
+	mu  *sync.Mutex
+	dst io.Writer
+}
+
+func (w synchronizedWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.dst.Write(data)
 }
 
 func main() {
@@ -102,7 +129,7 @@ Commands:
   build [tex-file]       Convert figures, then compile with latexmk.
   images                 Convert image files to cached PDFs.
   clean [--figures]      Remove build artifacts, optionally cached figure PDFs.
-  init [directory]       Create a minimal starter project.
+  init [directory]       Create a standalone article starter project.
   doctor                 Check required external commands.
   help                   Show this help.
 
@@ -112,6 +139,7 @@ Common options:
   --pdf-dir DIR          Cached PDF directory. Defaults to <figures-dir>/pdf.
   --build-dir DIR        Build output directory. Defaults to build.
   --tex-file FILE        Main TeX file for image auto-detection.
+  --workers N            Maximum concurrent image conversions. Default: 4.
 
 Build options:
   --engine ENGINE        latexmk engine: xelatex, pdflatex, lualatex. Default: xelatex.
@@ -136,6 +164,14 @@ func extractProjectDir(args []string) (string, error) {
 		}
 	}
 	return filepath.Abs(projectDir)
+}
+
+func parseWorkers(value string) (int, error) {
+	workers, err := strconv.Atoi(value)
+	if err != nil || workers < 1 {
+		return 0, errors.New("--workers requires a positive integer")
+	}
+	return workers, nil
 }
 
 func loadConfig(projectDir string) (config, error) {
@@ -268,6 +304,7 @@ func (a app) runImages(args []string) error {
 		FiguresDir: cfg.FiguresDir,
 		PDFDir:     cfg.PDFDir,
 		TexFile:    cfg.TexFile,
+		Workers:    defaultImageWorkers,
 		Prune:      true,
 	}
 	for i := 0; i < len(args); i++ {
@@ -291,6 +328,15 @@ func (a app) runImages(args []string) error {
 				return errors.New("--tex-file requires a value")
 			}
 			opts.TexFile = args[i+1]
+			i++
+		case "--workers":
+			if i+1 >= len(args) {
+				return errors.New("--workers requires a value")
+			}
+			opts.Workers, err = parseWorkers(args[i+1])
+			if err != nil {
+				return err
+			}
 			i++
 		case "--force":
 			opts.Force = true
@@ -326,7 +372,7 @@ func (a app) convertImages(opts imageOptions) error {
 		if opts.PDFDir != "" {
 			targetPDFDir = resolveInProject(opts.ProjectDir, opts.PDFDir)
 		}
-		if err := a.convertImagesDir(dir, targetPDFDir, opts.Force, opts.Prune); err != nil {
+		if err := a.convertImagesDir(dir, targetPDFDir, opts.Workers, opts.Force, opts.Prune); err != nil {
 			return err
 		}
 	}
@@ -514,13 +560,15 @@ func defaultPDFDir(figuresDir string) string {
 	return filepath.Join(figuresDir, "pdf")
 }
 
-func (a app) convertImagesDir(figuresDir, pdfDir string, force, prune bool) error {
+func (a app) convertImagesDir(figuresDir, pdfDir string, workers int, force, prune bool) error {
 	if !dirExists(figuresDir) {
 		return fmt.Errorf("figures directory not found: %s", figuresDir)
 	}
 	if err := os.MkdirAll(pdfDir, 0755); err != nil {
 		return err
 	}
+	var pending []imageConversion
+	pendingTarget := make(map[string]int)
 	for _, ext := range imageExts {
 		matches, _ := filepath.Glob(filepath.Join(figuresDir, "*."+ext))
 		matchesUpper, _ := filepath.Glob(filepath.Join(figuresDir, "*."+strings.ToUpper(ext)))
@@ -529,15 +577,18 @@ func (a app) convertImagesDir(figuresDir, pdfDir string, force, prune bool) erro
 			pdf := filepath.Join(pdfDir, name+".pdf")
 			needsConvert := force || !fileExists(pdf) || newerThan(img, pdf)
 			if needsConvert {
-				fmt.Fprintf(a.stdout, "Converting %s -> %s.pdf\n", filepath.Base(img), name)
-				cmd := exec.Command("gm", "convert", img, pdf)
-				cmd.Stdout = a.stdout
-				cmd.Stderr = a.stderr
-				if err := cmd.Run(); err != nil {
-					return err
+				conversion := imageConversion{source: img, target: pdf, name: name}
+				if index, exists := pendingTarget[pdf]; exists {
+					pending[index] = conversion
+				} else {
+					pendingTarget[pdf] = len(pending)
+					pending = append(pending, conversion)
 				}
 			}
 		}
+	}
+	if err := a.runImageConversions(pending, workers); err != nil {
+		return err
 	}
 	if prune {
 		pdfs, _ := filepath.Glob(filepath.Join(pdfDir, "*.pdf"))
@@ -552,6 +603,49 @@ func (a app) convertImagesDir(figuresDir, pdfDir string, force, prune bool) erro
 		}
 	}
 	return nil
+}
+
+func (a app) runImageConversions(pending []imageConversion, workers int) error {
+	if len(pending) == 0 {
+		return nil
+	}
+	if workers > len(pending) {
+		workers = len(pending)
+	}
+
+	var outputMu sync.Mutex
+	stdout := synchronizedWriter{mu: &outputMu, dst: a.stdout}
+	stderr := synchronizedWriter{mu: &outputMu, dst: a.stderr}
+	jobs := make(chan imageConversion)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				cmd := exec.Command("gm", "convert", job.source, job.target)
+				cmd.Stdout = stdout
+				cmd.Stderr = stderr
+				if err := cmd.Run(); err != nil {
+					errMu.Lock()
+					if firstErr == nil {
+						firstErr = fmt.Errorf("convert %s: %w", filepath.Base(job.source), err)
+					}
+					errMu.Unlock()
+				}
+			}
+		}()
+	}
+	for _, job := range pending {
+		fmt.Fprintf(stdout, "Converting %s -> %s.pdf\n", filepath.Base(job.source), job.name)
+		jobs <- job
+	}
+	close(jobs)
+	wg.Wait()
+	return firstErr
 }
 
 func (a app) runBuild(args []string) error {
@@ -571,6 +665,7 @@ func (a app) runBuild(args []string) error {
 		Engine:        defaultString(cfg.Engine, "xelatex"),
 		ConvertImages: cfg.ConvertImages != "0",
 		TexFile:       cfg.TexFile,
+		Workers:       defaultImageWorkers,
 	}
 	positionalTex := false
 	for i := 0; i < len(args); i++ {
@@ -600,6 +695,15 @@ func (a app) runBuild(args []string) error {
 				return errors.New("--engine requires a value")
 			}
 			opts.Engine = args[i+1]
+			i++
+		case "--workers":
+			if i+1 >= len(args) {
+				return errors.New("--workers requires a value")
+			}
+			opts.Workers, err = parseWorkers(args[i+1])
+			if err != nil {
+				return err
+			}
 			i++
 		case "--no-images":
 			opts.ConvertImages = false
@@ -652,6 +756,7 @@ func (a app) build(opts buildOptions) error {
 			FiguresDir: opts.FiguresDir,
 			PDFDir:     opts.PDFDir,
 			TexFile:    texFile,
+			Workers:    opts.Workers,
 			Prune:      true,
 		}); err != nil {
 			return err
@@ -887,22 +992,108 @@ func createMinimalTemplate(target string) error {
 	if err := os.MkdirAll(filepath.Join(target, "figures"), 0755); err != nil {
 		return err
 	}
-	content := `\documentclass{article}
-\usepackage{graphicx}
+	if err := os.MkdirAll(filepath.Join(target, "bibliography"), 0755); err != nil {
+		return err
+	}
+	content := `%----------------------------------------------------------------------------------------
+% PACKAGES AND DOCUMENT CONFIGURATION
+%----------------------------------------------------------------------------------------
+% Disable PDF image compression when using converted PDF figures with XeLaTeX/dvipdfmx.
+\special{dvipdfmx:config z 0}
 
+\documentclass[
+	letterpaper,
+	10pt,
+	fleqn
+]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{adjustbox}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage[hidelinks]{hyperref}
+\usepackage[backend=biber,style=numeric]{biblatex}
+\addbibresource{bibliography/references.bib}
+
+\setcounter{secnumdepth}{0}
+\setcounter{page}{1}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Paper Title}
+\cfoot{\thepage}
+\rfoot{\href{https://github.com/Yaho7/texgo}{github.com/Yaho7/texgo}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+\newcommand{\keywords}[1]{\par\medskip\noindent\textbf{Keywords:} #1}
+
+%----------------------------------------------------------------------------------------
+% TITLE SECTION
+%----------------------------------------------------------------------------------------
 \title{Paper Title}
-\author{Author Name}
-\date{\today}
+\author{%
+	Author Name\textsuperscript{1}\thanks{Corresponding author: \href{mailto:i@yaho7.cn}{i@yaho7.cn}\\
+	Blog: \href{https://yaho7.cn}{yaho7.cn}\\
+	Template generated with \href{https://github.com/Yaho7/texgo}{texgo}; replace this information before submission.}\\
+	\small\textsuperscript{\textbf{1}}Department, University, City, Country
+}
+\date{}
 
 \begin{document}
 \maketitle
 
+\begin{abstract}
+	\noindent Write the abstract here.
+
+	\keywords{keyword; keyword; keyword}
+\end{abstract}
+
+%----------------------------------------------------------------------------------------
+
 \section{Introduction}
-Start writing here.
+Start writing here and cite relevant work~\cite{seemann_droplet_2012}.
+
+\begin{figure}[htbp]
+	\centering
+	\IfFileExists{figures/pdf/logo.pdf}{%
+		\includegraphics[width=0.95\linewidth]{figures/pdf/logo.pdf}%
+	}{%
+		\fbox{\parbox[c][4cm][c]{0.85\linewidth}{\centering Add a source image under \texttt{figures/} and run \texttt{texgo images}.}}%
+	}
+	\caption{Example figure.}
+	\label{fig:example}
+\end{figure}
+
+\section{Conclusions}
+Summarize the conclusions here.
+
+%----------------------------------------------------------------------------------------
+% REFERENCES
+%----------------------------------------------------------------------------------------
+\newpage
+\printbibliography
 
 \end{document}
 `
-	return os.WriteFile(filepath.Join(target, "manuscript.tex"), []byte(content), 0644)
+	references := `@article{seemann_droplet_2012,
+	title = {Replace with the title of your reference},
+	author = {Author, First and Author, Second},
+	journal = {Journal Name},
+	year = {2012},
+	volume = {1},
+	pages = {1--10}
+}
+`
+	if err := os.WriteFile(filepath.Join(target, "manuscript.tex"), []byte(content), 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(target, "bibliography", "references.bib"), []byte(references), 0644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(target, "figures", "logo.png"), templateLogoPNG, 0644)
 }
 
 func (a app) runDoctor() error {

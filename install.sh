@@ -158,7 +158,10 @@ print_success_summary() {
 
 confirm_dependency_install() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
-    [ -t 0 ] || return 0
+    [ -t 0 ] || {
+        echo "Cannot prompt to install missing dependencies in non-interactive mode. Re-run with --yes or --no-deps." >&2
+        return 1
+    }
 
     local answer
     printf 'Install missing dependencies now? [Y/n]: '

@@ -10,7 +10,7 @@
 - 将支持的图片转换一次并复用 PDF 缓存，显著缩短后续重复编译时间。
 - 自动识别 `main.tex`、`paper.tex`、`manuscript.tex`、`thesis.tex` 等常见主文件。
 - 解析本地 `\includegraphics{...}` 引用并发现图片目录。
-- 通过 GraphicsMagick 将支持的图片转换为缓存 PDF。
+- 通过 GraphicsMagick 并发地将支持的图片转换为缓存 PDF。
 - 使用 `.texgo.conf` 保存项目配置。
 - 使用 Go 构建单文件二进制，便于分发。
 
@@ -20,7 +20,7 @@
 
 - `latexmk`
 - `latexmk` 支持的 LaTeX 引擎：`xelatex`、`pdflatex` 或 `lualatex`
-- GraphicsMagick 提供的 `gm`，仅在启用图片转换时需要
+- GraphicsMagick 提供的 `gm`，必需依赖，用于项目的图片转换加速流程
 
 源码构建依赖：
 
@@ -58,11 +58,14 @@ texgo setup              # 交互式创建或更新 .texgo.conf
 texgo build              # 构建当前项目
 texgo build main.tex     # 构建指定 TeX 文件
 texgo images             # 只转换并缓存图片
+texgo images --workers 8 # 最多使用八个并发任务转换图片
 texgo clean              # 删除构建目录
 texgo clean --figures    # 删除构建产物和图片 PDF 缓存
 texgo doctor             # 检查外部依赖命令
-texgo init my-paper      # 创建最小示例项目
+texgo init my-paper      # 创建独立文章模板项目
 ```
+
+`texgo init` 会生成 `template/manuscript.tex`、`template/bibliography/references.bib`，并写入内置的源图片 `template/figures/logo.png`。模板页脚包含项目网址，联系信息行预填 `i@yaho7.cn` 与 `yaho7.cn` 供用户替换；运行 `texgo build` 时，内置 logo 会先通过 GraphicsMagick 转换后再参与文稿编译。
 
 常用参数：
 
@@ -74,6 +77,7 @@ texgo init my-paper      # 创建最小示例项目
 --tex-file FILE
 --engine xelatex|pdflatex|lualatex
 --no-images
+--workers N
 ```
 
 ## 配置
@@ -98,7 +102,7 @@ convert_images=1
 
 ## 图片转换
 
-启用图片转换时，`texgo` 会将图片目录中的支持格式转换为 PDF，并保存到该图片目录下的 `pdf/` 子目录。后续构建会直接复用这些缓存，避免 LaTeX 反复处理大量图片资源；对于图片较多的论文、报告和毕业设计，这通常可以大幅缩短编译时间。
+启用图片转换时，`texgo` 会将图片目录中的支持格式转换为 PDF，并保存到该图片目录下的 `pdf/` 子目录。默认最多并发运行四个 `gm convert` 任务；可向 `texgo build` 或 `texgo images` 传入 `--workers N` 调整上限。后续构建会直接复用这些缓存，避免 LaTeX 反复处理大量图片资源；对于图片较多的论文、报告和毕业设计，这通常可以大幅缩短编译时间。
 
 支持的源文件格式：
 
@@ -127,6 +131,7 @@ bash tests/install_release_test.sh
 
 ```text
 cmd/texgo/              Go CLI 源码和测试
+cmd/texgo/template-assets/ texgo init 写出的内置资源
 .github/workflows/      多平台发布构建
 scripts/                构建辅助脚本
 install.sh              发布版安装和源码构建辅助脚本

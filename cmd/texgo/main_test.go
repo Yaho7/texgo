@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -20,6 +21,24 @@ func runFakeTool() int {
 	switch filepath.Base(os.Args[0]) {
 	case "gm":
 		if len(os.Args) == 4 && os.Args[1] == "convert" {
+			if logPath := os.Getenv("GM_START_LOG"); logPath != "" {
+				log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					return 1
+				}
+				if _, err := log.WriteString(filepath.Base(os.Args[2]) + "\n"); err != nil {
+					_ = log.Close()
+					return 1
+				}
+				if err := log.Close(); err != nil {
+					return 1
+				}
+			}
+			if releasePath := os.Getenv("GM_RELEASE_FILE"); releasePath != "" {
+				for !fileExists(releasePath) {
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
 			if err := os.MkdirAll(filepath.Dir(os.Args[3]), 0755); err != nil {
 				return 1
 			}
@@ -63,7 +82,7 @@ func TestHelp(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"Usage: texgo", "setup", "build", "images"} {
+	for _, want := range []string{"Usage: texgo", "setup", "build", "images", "standalone article starter project"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help output missing %q:\n%s", want, got)
 		}
@@ -112,6 +131,77 @@ func TestImagesUsesUppercaseFiguresAndExistingPDFCacheDir(t *testing.T) {
 
 	assertFile(t, filepath.Join(project, "src", "Figures", "PDF", "Plot.pdf"))
 	assertNoChildDirNamed(t, filepath.Join(project, "src", "Figures"), "pdf")
+}
+
+func TestImagesWorkersLimitsConcurrentConversions(t *testing.T) {
+	project := realPath(t, t.TempDir())
+	fakeBin := t.TempDir()
+	startLog := filepath.Join(project, "gm-started.log")
+	releaseFile := filepath.Join(project, "release-gm")
+	installFakeTool(t, fakeBin, "gm")
+	for _, name := range []string{"one.png", "two.png", "three.png", "four.png"} {
+		writeFile(t, filepath.Join(project, "figures", name), name)
+	}
+
+	withEnv(t, "PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withEnv(t, "TEXGO_FAKE_TOOL", "1")
+	withEnv(t, "GM_START_LOG", startLog)
+	withEnv(t, "GM_RELEASE_FILE", releaseFile)
+
+	var out, stderr bytes.Buffer
+	done := make(chan error, 1)
+	runInDir(t, project, func() {
+		a := app{stdin: strings.NewReader(""), stdout: &out, stderr: &stderr}
+		go func() {
+			done <- a.run([]string{"images", "--workers", "2"})
+		}()
+
+		waitForLineCount(t, startLog, 2, releaseFile)
+		time.Sleep(50 * time.Millisecond)
+		if got := lineCount(startLog); got != 2 {
+			writeFile(t, releaseFile, "go")
+			<-done
+			t.Fatalf("expected no more than 2 active conversions, got %d", got)
+		}
+		writeFile(t, releaseFile, "go")
+		if err := <-done; err != nil {
+			t.Fatalf("images: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+		}
+	})
+
+	if got := lineCount(startLog); got != 4 {
+		t.Fatalf("expected all 4 conversions to run, got %d", got)
+	}
+	for _, name := range []string{"one.pdf", "two.pdf", "three.pdf", "four.pdf"} {
+		assertFile(t, filepath.Join(project, "figures", "pdf", name))
+	}
+}
+
+func TestImagesConvertsOneSourceWhenExtensionsSharePDFTarget(t *testing.T) {
+	project := realPath(t, t.TempDir())
+	fakeBin := t.TempDir()
+	startLog := filepath.Join(project, "gm-started.log")
+	installFakeTool(t, fakeBin, "gm")
+	writeFile(t, filepath.Join(project, "figures", "plot.png"), "png")
+	writeFile(t, filepath.Join(project, "figures", "plot.jpg"), "jpg")
+
+	withEnv(t, "PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withEnv(t, "TEXGO_FAKE_TOOL", "1")
+	withEnv(t, "GM_START_LOG", startLog)
+	runInDir(t, project, func() {
+		var out, stderr bytes.Buffer
+		a := app{stdin: strings.NewReader(""), stdout: &out, stderr: &stderr}
+		if err := a.run([]string{"images", "--workers", "2"}); err != nil {
+			t.Fatalf("images: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+		}
+	})
+
+	if got := lineCount(startLog); got != 1 {
+		t.Fatalf("expected one conversion targeting plot.pdf, got %d", got)
+	}
+	if got := readFile(t, filepath.Join(project, "figures", "pdf", "plot.pdf")); got != "jpg" {
+		t.Fatalf("expected the existing extension order to retain jpg source, got %q", got)
+	}
 }
 
 func TestBuildWorksWithoutBundledTemplate(t *testing.T) {
@@ -277,6 +367,54 @@ func TestCleanRemovesBuildArtifactsAndCachedPDFs(t *testing.T) {
 	assertNotFile(t, filepath.Join(project, "figures", "pdf", "logo.pdf"))
 }
 
+func TestInitCreatesStandaloneJournalArticleTemplate(t *testing.T) {
+	project := realPath(t, t.TempDir())
+	target := filepath.Join(project, "paper")
+
+	runInDir(t, project, func() {
+		var out, stderr bytes.Buffer
+		a := app{stdin: strings.NewReader(""), stdout: &out, stderr: &stderr}
+		if err := a.run([]string{"init", target}); err != nil {
+			t.Fatalf("init: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+		}
+	})
+
+	manuscript := readFile(t, filepath.Join(target, "template", "manuscript.tex"))
+	for _, want := range []string{
+		`\documentclass[`,
+		`]{article}`,
+		`\addbibresource{bibliography/references.bib}`,
+		`\begin{abstract}`,
+		`\section{Introduction}`,
+		`\includegraphics[width=0.95\linewidth]{figures/pdf/logo.pdf}`,
+		`\printbibliography`,
+		`mailto:i@yaho7.cn`,
+		`https://github.com/Yaho7/texgo`,
+		`https://yaho7.cn`,
+	} {
+		if !strings.Contains(manuscript, want) {
+			t.Fatalf("generated manuscript missing %q:\n%s", want, manuscript)
+		}
+	}
+	if strings.Contains(manuscript, "styles/") {
+		t.Fatalf("generated manuscript must not depend on styles/:\n%s", manuscript)
+	}
+	references := readFile(t, filepath.Join(target, "template", "bibliography", "references.bib"))
+	if !strings.Contains(references, "@article{seemann_droplet_2012") {
+		t.Fatalf("generated bibliography missing sample citation:\n%s", references)
+	}
+	if !dirExists(filepath.Join(target, "template", "figures")) {
+		t.Fatalf("generated template missing figures directory")
+	}
+	logo, err := os.ReadFile(filepath.Join(target, "template", "figures", "logo.png"))
+	if err != nil {
+		t.Fatalf("generated template missing embedded logo: %v", err)
+	}
+	if len(logo) < 8 || string(logo[:8]) != "\x89PNG\r\n\x1a\n" {
+		t.Fatalf("generated logo is not a PNG asset")
+	}
+}
+
 func installFakeTool(t *testing.T, dir, name string) {
 	t.Helper()
 	mkdirAll(t, dir)
@@ -389,4 +527,25 @@ func assertNoChildDirNamed(t *testing.T, parent, name string) {
 			t.Fatalf("expected %s not to contain child directory named %s", parent, name)
 		}
 	}
+}
+
+func waitForLineCount(t *testing.T, path string, want int, releaseFile string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if lineCount(path) >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	writeFile(t, releaseFile, "go")
+	t.Fatalf("timed out waiting for %d conversions to start; got %d", want, lineCount(path))
+}
+
+func lineCount(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return len(strings.Fields(string(data)))
 }
