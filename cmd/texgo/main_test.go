@@ -59,6 +59,9 @@ func runFakeTool() int {
 		}
 		return 2
 	case "latexmk":
+		if forbidden := os.Getenv("LATEXMK_FORBIDDEN_FILE"); forbidden != "" && fileExists(forbidden) {
+			return 3
+		}
 		argsFile := os.Getenv("LATEXMK_ARGS_FILE")
 		if argsFile == "" {
 			return 1
@@ -274,6 +277,41 @@ func TestBuildGuidesSetupWhenMainTexIsAmbiguous(t *testing.T) {
 			t.Fatalf("expected setup guidance, got: %v", err)
 		}
 	})
+}
+
+func TestBuildIsolatesAndRestoresConflictingSourceDirectoryArtifacts(t *testing.T) {
+	project := realPath(t, t.TempDir())
+	fakeBin := t.TempDir()
+	argsFile := filepath.Join(project, "latexmk.args")
+	installFakeTool(t, fakeBin, "latexmk")
+	writeFile(t, filepath.Join(project, "manuscript.tex"), `\documentclass{article}\begin{document}x\end{document}`)
+	for _, ext := range []string{".aux", ".bbl", ".out", ".fdb_latexmk"} {
+		writeFile(t, filepath.Join(project, "manuscript"+ext), "stale")
+	}
+	writeFile(t, filepath.Join(project, "build", "manuscript.fdb_latexmk"), "failed build state")
+	writeFile(t, filepath.Join(project, "manuscript.pdf"), "keep")
+
+	withEnv(t, "PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withEnv(t, "TEXGO_FAKE_TOOL", "1")
+	withEnv(t, "LATEXMK_ARGS_FILE", argsFile)
+	withEnv(t, "LATEXMK_FORBIDDEN_FILE", filepath.Join(project, "manuscript.bbl"))
+	runInDir(t, project, func() {
+		var out, stderr bytes.Buffer
+		a := app{stdin: strings.NewReader(""), stdout: &out, stderr: &stderr}
+		if err := a.run([]string{"build", "--no-images"}); err != nil {
+			t.Fatalf("build: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+		}
+	})
+
+	for _, ext := range []string{".aux", ".bbl", ".out", ".fdb_latexmk"} {
+		path := filepath.Join(project, "manuscript"+ext)
+		assertFile(t, path)
+		if got := readFile(t, path); got != "stale" {
+			t.Fatalf("expected restored artifact content at %s, got %q", path, got)
+		}
+	}
+	assertNotFile(t, filepath.Join(project, "build", "manuscript.fdb_latexmk"))
+	assertFile(t, filepath.Join(project, "manuscript.pdf"))
 }
 
 func TestSetupWritesConfigAndBuildUsesIt(t *testing.T) {

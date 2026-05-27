@@ -24,6 +24,12 @@ const (
 
 var imageExts = []string{"png", "jpg", "jpeg", "gif", "tif", "tiff", "bmp", "svg"}
 
+var latexTransientExts = []string{
+	".aux", ".bbl", ".bcf", ".blg", ".fdb_latexmk", ".fls", ".log", ".out",
+	".run.xml", ".synctex.gz", ".toc", ".lof", ".lot", ".nav", ".snm", ".vrb",
+	".xdv", ".dvi",
+}
+
 //go:embed template-assets/logo.png
 var templateLogoPNG []byte
 
@@ -771,11 +777,23 @@ func (a app) build(opts buildOptions) error {
 		"-output-directory=" + buildDir,
 		texFile,
 	}
+	restoreArtifacts, err := isolateSourceArtifacts(texFile, buildDir)
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command("latexmk", latexArgs...)
 	cmd.Stdout = a.stdout
 	cmd.Stderr = a.stderr
-	if err := cmd.Run(); err != nil {
-		return err
+	runErr := cmd.Run()
+	restoreErr := restoreArtifacts()
+	if runErr != nil {
+		if restoreErr != nil {
+			return fmt.Errorf("%w; additionally could not restore source artifacts: %v", runErr, restoreErr)
+		}
+		return runErr
+	}
+	if restoreErr != nil {
+		return restoreErr
 	}
 	if opts.OpenPDF {
 		pdfFile := filepath.Join(buildDir, strings.TrimSuffix(filepath.Base(texFile), filepath.Ext(texFile))+".pdf")
@@ -785,6 +803,65 @@ func (a app) build(opts buildOptions) error {
 		return openFile(pdfFile)
 	}
 	return nil
+}
+
+func isolateSourceArtifacts(texFile, buildDir string) (func() error, error) {
+	noop := func() error { return nil }
+	texDir := filepath.Dir(texFile)
+	if filepath.Clean(texDir) == filepath.Clean(buildDir) {
+		return noop, nil
+	}
+
+	stem := strings.TrimSuffix(filepath.Base(texFile), filepath.Ext(texFile))
+	var artifacts []string
+	for _, ext := range latexTransientExts {
+		path := filepath.Join(texDir, stem+ext)
+		if fileExists(path) {
+			artifacts = append(artifacts, path)
+		}
+	}
+	if len(artifacts) == 0 {
+		return noop, nil
+	}
+
+	latexmkDatabase := filepath.Join(buildDir, stem+".fdb_latexmk")
+	if err := os.Remove(latexmkDatabase); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	backupDir, err := os.MkdirTemp(buildDir, ".texgo-source-artifacts-")
+	if err != nil {
+		return nil, err
+	}
+	for index, path := range artifacts {
+		backupPath := filepath.Join(backupDir, filepath.Base(path))
+		if err := os.Rename(path, backupPath); err != nil {
+			for _, moved := range artifacts[:index] {
+				_ = os.Rename(filepath.Join(backupDir, filepath.Base(moved)), moved)
+			}
+			_ = os.Remove(backupDir)
+			return nil, err
+		}
+	}
+
+	restored := false
+	return func() error {
+		if restored {
+			return nil
+		}
+		restored = true
+		var firstErr error
+		for _, path := range artifacts {
+			backupPath := filepath.Join(backupDir, filepath.Base(path))
+			if err := os.Rename(backupPath, path); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		if err := os.Remove(backupDir); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return firstErr
+	}, nil
 }
 
 func (a app) runClean(args []string) error {
